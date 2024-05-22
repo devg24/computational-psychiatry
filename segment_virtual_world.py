@@ -8,9 +8,10 @@ import collections
 FOOD_PROBABILITY_VALUES = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5]
 MAX_SPEED = 10  # Fixed max speed 
 HEALTH_INCREASE = 20
-GOAL_REWARD = 50
-GOAL_POSITION = 150
-SEGMENT_LENGTH = 30  # Length of each segment
+GOAL_REWARD = 75
+GOAL_POSITION = 100
+SEGMENT_LENGTH = 10  # Length of each segment
+
 
 class DQNAgent:
     def __init__(self, state_size, action_size):
@@ -21,7 +22,7 @@ class DQNAgent:
         self.epsilon = 1.0  # exploration rate
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.995
-        self.learning_rate = 0.1
+        self.learning_rate = 0.01
         self.model = self._build_model()
         self.target_model = self._build_model()
 
@@ -93,7 +94,8 @@ class VirtualWorld:
 
     def create_segments(self):
         num_segments = self.goal_position // self.segment_length
-        return [(i * self.segment_length, (i + 1) * self.segment_length, random.choice(FOOD_PROBABILITY_VALUES))
+        seg_prob = random.sample(FOOD_PROBABILITY_VALUES, num_segments)
+        return [(i * self.segment_length, (i + 1) * self.segment_length, seg_prob[i])
                 for i in range(num_segments)]
 
     def reset(self):
@@ -104,17 +106,27 @@ class VirtualWorld:
         return np.array([[self.agent_position, self.agent_health, self.segments[self.current_segment][2]]])
 
     def step(self, action):
+        action+=1
         self.agent_speed = action
         self.agent_position += self.agent_speed
         self.agent_health -= self.agent_speed
+
+        if self.agent_position >= self.segments[self.current_segment][1]:
+            self.current_segment += 1
+
+        # Increase health if food is available
+        if (self.current_segment < len(self.segments)) and (random.random() < self.segments[self.current_segment][2]):
+            self.agent_health += HEALTH_INCREASE
+
 
         if self.agent_health <= 0:
             self.reset()
             return np.array([[self.agent_position, self.agent_health, self.segments[self.current_segment][2]]]), -50, True
 
-        if self.agent_position >= self.segments[self.current_segment][1]:
-            self.current_segment += 1
 
+
+        done = False
+        reward = 0
         if self.agent_position >= self.goal_position:
             done = True
             reward = self.agent_health + GOAL_REWARD
@@ -127,7 +139,7 @@ class VirtualWorld:
 
 def run_experiment(max_speed=MAX_SPEED, num_episodes=500, goal_position=GOAL_POSITION):
     state_size = 3 
-    action_size = max_speed + 1  # Possible actions: 0 to max_speed
+    action_size = max_speed  # Possible actions: 1 to max_speed
     world = VirtualWorld(max_speed=max_speed, goal_position=goal_position)
     agent = DQNAgent(state_size, action_size)
 
@@ -230,18 +242,45 @@ def plot_policy(agent, num_segments, segment_length):
     plt.grid(True)
     plt.show()
 
+def plot_average_speed_vs_food_density(agent, segment_length):
+    food_density_speeds = collections.defaultdict(list)
 
+    for state, action, reward, next_state, done in agent.memory:
+        position = state[0][0]
+        segment_index = int(position // segment_length)
+        food_density = state[0][2]
 
-
+        food_density_speeds[food_density].append(action)
+    
+    # Calculate average speeds for each food density
+    avg_speeds = {}
+    for food_density, speeds in food_density_speeds.items():
+        avg_speeds[food_density] = np.mean(speeds)
+        # print(f"Food Density {food_density}: Average Speed = {avg_speeds[food_density]}, Speeds = {speeds}")
+    
+    # Prepare data for plotting
+    sorted_avg_speeds = sorted(avg_speeds.items(), key=lambda x: x[0])
+    food_densities = [item[0] for item in sorted_avg_speeds]
+    average_speeds = [item[1] for item in sorted_avg_speeds]
+    
+    plt.plot(food_densities, average_speeds, marker='o')
+    plt.xlabel('Food Density')
+    plt.ylabel('Average Speed')
+    plt.title('Average Speed vs Food Density')
+    plt.grid(True)
+    plt.show()
 
 if __name__ == '__main__':
-    agent, rewards = run_experiment(num_episodes=500)
+    agent, rewards = run_experiment(num_episodes=600)
     
     # Plotting the results
     plot_rewards(rewards)
     
-    # num_segments = GOAL_POSITION // SEGMENT_LENGTH
+    num_segments = GOAL_POSITION // SEGMENT_LENGTH
     # plot_average_speed_per_segment(agent, num_segments, SEGMENT_LENGTH)
     # plot_health_vs_position(agent)
     # plot_policy(agent, num_segments, SEGMENT_LENGTH)
+    
+    plot_average_speed_vs_food_density(agent, SEGMENT_LENGTH)
+
 
