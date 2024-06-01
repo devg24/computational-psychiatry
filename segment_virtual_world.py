@@ -4,13 +4,14 @@ import tensorflow as tf
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import collections
+from mpl_toolkits.mplot3d import Axes3D
 
 FOOD_PROBABILITY_VALUES = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5]
 MAX_SPEED = 10  # Fixed max speed 
 HEALTH_INCREASE = 10
 GOAL_REWARD = 75
 GOAL_POSITION = 100
-LOW_HEALTH_LOSS = 1
+LOW_HEALTH_LOSS = 5
 HEALTH_LOSS_MULTIPLIER = 1
 
 
@@ -113,12 +114,10 @@ class VirtualWorld:
             self.agent_health -= self.agent_speed * HEALTH_LOSS_MULTIPLIER
 
 
-        if self.agent_position == self.food_position:
-            self.food_position = self.generate_food_position()
-            if action > 0:
+        if self.agent_position >= self.food_position:
+            if self.agent_position == self.food_position and action > 0:
                 self.agent_health += HEALTH_INCREASE
-            
-        
+            self.food_position = self.generate_food_position()
 
         if self.agent_health <= 0:
             return np.array([[self.agent_position, self.agent_health, self.food_position]]), -50, True
@@ -191,39 +190,48 @@ def plot_health_vs_position(agent):
     plt.grid(True)
     plt.show()
 
-def plot_policy(agent, num_segments, segment_length):
-    state_samples = []
-    actions = []
-    for segment_index in range(num_segments):
-        for health in range(0, 101, 10):  # Sample different health values
-            food_density = agent.memory[0][0][0][2]  # Example food density (you can vary this)
-            state_samples.append([segment_index * segment_length, health, food_density])
 
-    state_samples = np.array(state_samples)
-    state_samples = np.reshape(state_samples, (state_samples.shape[0], 1, state_samples.shape[1]))
-    actions = [agent.act(state) for state in state_samples]
+def plot_3d_speed_position_food(agent):
+    """
+    Plot a 3D scatter plot of speed, position, and food position using the agent's memory.
 
-    segment_positions = [state[0][0] for state in state_samples]
-    health_values = [state[0][1] for state in state_samples]
+    Parameters:
+    agent (DQNAgent): The trained DQN agent.
+    """
+    speeds = []
+    positions = []
+    food_positions = []
 
-    plt.scatter(segment_positions, health_values, c=actions, cmap='viridis', alpha=0.5)
-    plt.colorbar(label='Action (Speed)')
-    plt.xlabel('Position')
-    plt.ylabel('Health')
-    plt.title('Policy Visualization')
-    plt.grid(True)
+    # Extract data from the agent's memory
+    for state, action, reward, next_state, done in agent.memory[-500:]:
+        speeds.append(action)
+        positions.append(state[0][0])  # Extract the position from the state
+        food_positions.append(state[0][2] - state[0][0])  # Extract the food position from the state
+
+    # Plotting the 3D scatter plot
+    fig = plt.figure(figsize=(10, 6))
+    ax = fig.add_subplot(111, projection='3d')
+    scatter = ax.scatter(positions, food_positions, speeds, c=speeds, cmap='viridis', alpha=0.5)
+
+    ax.set_xlabel('Position')
+    ax.set_ylabel('Food Position')
+    ax.set_zlabel('Speed')
+    ax.set_title('3D Plot of Speed, Position, and Food Position')
+
+    fig.colorbar(scatter, ax=ax, label='Speed')
     plt.show()
 
-
 if __name__ == '__main__':
-    agent, rewards = run_experiment(num_episodes=1000)
+    agent, rewards = run_experiment(num_episodes=2000)
     
     # Plotting the results
     plot_rewards(rewards)
     
-    num_segments = GOAL_POSITION 
+    # Plotting the 3D scatter plot
+    plot_3d_speed_position_food(agent)
+
     # plot_health_vs_position(agent)
-    # plot_policy(agent, num_segments, SEGMENT_LENGTH)
+
     
 
 
