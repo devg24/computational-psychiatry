@@ -5,14 +5,14 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import collections
 from mpl_toolkits.mplot3d import Axes3D
+import argparse
 
-FOOD_PROBABILITY_VALUES = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5]
 MAX_SPEED = 10  # Fixed max speed 
-HEALTH_INCREASE = 10
-GOAL_REWARD = 75
-GOAL_POSITION = 100
-LOW_HEALTH_LOSS = 5
-HEALTH_LOSS_MULTIPLIER = 1
+HEALTH_INCREASE = 40
+GOAL_REWARD = 100
+GOAL_POSITION = 150
+LOW_HEALTH_LOSS = 1
+HEALTH_LOSS_MULTIPLIER = 2
 
 
 STATE_SIZE = 3 
@@ -102,7 +102,7 @@ class VirtualWorld:
         return np.array([[self.agent_position, self.agent_health, self.food_position]])
 
     def generate_food_position(self):
-        return self.agent_position + random.randint(0, 20)
+        return self.agent_position + random.randint(0, 10)
 
     def step(self, action):
         self.agent_speed = action
@@ -120,16 +120,16 @@ class VirtualWorld:
             self.food_position = self.generate_food_position()
 
         if self.agent_health <= 0:
-            return np.array([[self.agent_position, self.agent_health, self.food_position]]), -50, True
+            return np.array([[self.agent_position, self.agent_health, self.food_position]]), -GOAL_REWARD, True
 
         done = False
         reward = 0
         if self.agent_position >= self.goal_position:
             done = True
-            reward = self.agent_health + GOAL_REWARD
+            reward = GOAL_REWARD
         else:
             done = False
-            reward = self.agent_health/10
+            reward = self.agent_health/100
 
         return np.array([[self.agent_position, self.agent_health, self.food_position]]), reward, done
 
@@ -150,7 +150,7 @@ def run_experiment(max_speed=MAX_SPEED, num_episodes=500, goal_position=GOAL_POS
 
         count = 0
 
-        while not done and count < 50:  # Run until the goal is reached
+        while not done and count < 100:  # Run until the goal is reached
             action = agent.act(state)
             episode_actions.append(action)
             next_state, reward, done = world.step(action)
@@ -222,7 +222,11 @@ def plot_3d_speed_position_food(agent):
     plt.show()
 
 if __name__ == '__main__':
-    agent, rewards = run_experiment(num_episodes=2000)
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument("--num_episodes", type=int, default=500)
+    args = argparser.parse_args()
+    
+    agent, rewards = run_experiment(num_episodes=args.num_episodes)
     
     # Plotting the results
     plot_rewards(rewards)
