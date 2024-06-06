@@ -8,14 +8,12 @@ from mpl_toolkits.mplot3d import Axes3D
 import argparse
 
 MAX_SPEED = 10  # Fixed max speed
-HEALTH_INCREASE = 40
+HEALTH_INCREASE = 30
 GOAL_REWARD = 100
 GOAL_POSITION = 150
 LOW_HEALTH_LOSS = 1
 HEALTH_LOSS_MULTIPLIER = 2
 NO_FOOD_PROB = 0.4
-
-
 STATE_SIZE = 3
 
 class DQNAgent:
@@ -99,6 +97,7 @@ class VirtualWorld:
 
 
     def step(self, action):
+        old_health = self.agent_health
         self.agent_speed = action
         self.agent_position += self.agent_speed
 
@@ -117,13 +116,11 @@ class VirtualWorld:
             return np.array([[self.agent_position, self.agent_health, self.food_position]]), -GOAL_REWARD, True
 
         done = False
-        reward = 0
+        reward = self.agent_health - old_health
         if self.agent_position >= self.goal_position:
             done = True
-            reward = GOAL_REWARD
-        else:
-            done = False
-            reward = self.agent_health / 10
+            reward += GOAL_REWARD
+
 
         return np.array([[self.agent_position, self.agent_health, self.food_position]]), reward, done
 
