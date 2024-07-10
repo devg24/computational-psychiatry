@@ -6,16 +6,21 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import os
 import argparse
+import logging
+from collections import deque
+
+
 
 MAX_SPEED = 10  # Fixed max speed
-HEALTH_INCREASE = 5
+HEALTH_INCREASE = 25
 GOAL_REWARD = 100
-GOAL_POSITION = 175
+GOAL_POSITION = 150
 LOW_HEALTH_LOSS = 1
 HEALTH_LOSS_MULTIPLIER = 1.25
 STATE_SIZE = 3
-PROBABILITIES = [i/10 for i in range(1,7)]
-FOOD_REWARD = 10
+FOOD_REWARD = 5
+TIME_PENALTY = -1
+PROBABILITY  = 0.1
 
 class DQNAgent:
     def __init__(self, state_size, action_size):
@@ -25,7 +30,7 @@ class DQNAgent:
         self.gamma = 0.99  # discount rate
         self.epsilon = 1.0  # exploration rate
         self.epsilon_min = 0.01
-        self.epsilon_decay = 0.995
+        self.epsilon_decay = 0.999
         self.learning_rate = 0.001
         self.target_freq = 150
         self.target_counter = 0
@@ -35,9 +40,8 @@ class DQNAgent:
 
     def _build_model(self):
         model = tf.keras.Sequential([
-            tf.keras.layers.Dense(64, input_dim=self.state_size, activation='relu'),
-            tf.keras.layers.Dense(128, activation='relu'),
-            tf.keras.layers.Dense(64, activation='relu'),
+            tf.keras.layers.Dense(32, input_dim=self.state_size, activation='relu'),
+            tf.keras.layers.Dense(32, activation='relu'),
             tf.keras.layers.Dense(self.action_size, activation='linear')
         ])
         model.compile(loss='mse', optimizer=tf.keras.optimizers.legacy.Adam(learning_rate=self.learning_rate))
@@ -112,31 +116,26 @@ class VirtualWorld:
     def __init__(self, max_speed, goal_position):
         self.max_speed = max_speed
         self.goal_position = goal_position
-        
         self.training = True
+        self.food_expiration_time = 15
+        self.no_food_rate = 5
         self.reset()
 
     def reset(self):
-        self.p = random.choice(PROBABILITIES)
+        self.p = PROBABILITY
         self.agent_position = 0
         self.agent_speed = 0
         self.agent_health = 100
         self.food_position = self.generate_food_position()
         self.iteration = 0
+        self.no_food_timer = 0
         return np.array([[self.agent_position, self.agent_health, self.food_position]])
 
     def generate_food_position(self):
-        if random.random() < self.p:
-            return self.agent_position # Food at agent's position means no food
-        return self.agent_position + random.randint(5,10)
+        return random.randint(5,20)
 
 
     def step(self, action):
-        self.iteration += 1
-        if self.training and (self.iteration % 10 == 0):
-            self.p = random.choice(PROBABILITIES)
-
-        previous_speed = self.agent_speed
         self.agent_speed = action
         self.agent_position += self.agent_speed
 
@@ -147,21 +146,34 @@ class VirtualWorld:
             health_loss = self.agent_speed * HEALTH_LOSS_MULTIPLIER
         self.agent_health -= health_loss
 
-        base_reward = self.agent_position / self.goal_position
-        speed_bonus = (self.agent_speed - previous_speed) * 0.2  
-        reward = base_reward + speed_bonus
-        reward = self.agent_position / self.goal_position
+        reward = TIME_PENALTY
         done = False
 
-        # Food collection reward
-        if self.agent_position >= self.food_position:
-            if self.agent_position == self.food_position and action > 0:
-                self.agent_health += HEALTH_INCREASE + (self.agent_speed * HEALTH_LOSS_MULTIPLIER)
-                self.agent_health = min(self.agent_health, 100)
+        if self.food_position >= 0:
+            self.no_food_timer = 0
+            self.food_position -= action
+            self.iteration += 1
+            if self.food_position == 0:
+                self.agent_health = min(self.agent_health + HEALTH_INCREASE, 100)
                 reward += FOOD_REWARD
-            self.food_position = self.generate_food_position()
-        
+                if random.random() < self.p:
+                    self.food_position = -1
+                else:
+                    self.food_position = self.generate_food_position()
+                self.iteration = 0
+            elif self.iteration >= self.food_expiration_time:
+                if random.random() < self.p:
+                    self.food_position = -1
+                else:
+                    self.food_position = self.generate_food_position()
 
+                self.iteration = 0
+            
+        if self.food_position < 0:
+            self.no_food_timer += 1
+            if self.no_food_timer >= self.no_food_rate:
+                self.food_position = self.generate_food_position()
+                self.no_food_timer = 0
 
         # Goal reaching reward
         if self.agent_position >= self.goal_position:
@@ -178,13 +190,21 @@ class VirtualWorld:
 
 def run_experiment(max_speed=MAX_SPEED, num_episodes=500, goal_position=GOAL_POSITION):
     state_size = STATE_SIZE
-    action_size = max_speed + 1  # Possible actions: 0 to max_speed
+    action_size = max_speed + 1
     world = VirtualWorld(max_speed=max_speed, goal_position=goal_position)
     agent = DQNAgent(state_size, action_size)
 
     total_actions = []
     rewards = []
+    epsilon_values = []
+    goals_reached = 0
+    avg_rewards = deque(maxlen=100)
+    
+    # Set up logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    
 
+    
     for episode in tqdm(range(num_episodes), desc="Training"):
         state = world.reset()
         state = np.reshape(state, [1, state_size])
@@ -192,8 +212,7 @@ def run_experiment(max_speed=MAX_SPEED, num_episodes=500, goal_position=GOAL_POS
         episode_reward = 0
         done = False
 
-        count = 0
-        while not done:  # Run until the goal is reached
+        while not done:
             action = agent.act(state)
             episode_actions.append(action)
             next_state, reward, done = world.step(action)
@@ -201,16 +220,25 @@ def run_experiment(max_speed=MAX_SPEED, num_episodes=500, goal_position=GOAL_POS
             agent.remember(state, action, reward, next_state, done)
             state = next_state
             episode_reward += reward
-            count += 1
 
-        total_actions.append(np.mean(episode_actions))  # Store the mean action for the episode
+        total_actions.append(np.mean(episode_actions))
         rewards.append(episode_reward)
+        avg_rewards.append(episode_reward)
+        epsilon_values.append(agent.epsilon)
+        
+        if world.agent_position >= world.goal_position:
+            goals_reached += 1
 
-        if len(agent.memory) > 32:  # Start training after enough experiences are accumulated
+        if len(agent.memory) > 32:
             agent.replay(32)
             agent.soft_update_target_model()
-
-    return agent, rewards  # Return the agent and rewards for further analysis
+        
+        # Log progress every 10 episodes
+        if episode % 100 == 0:
+            logging.info(f"Episode {episode}/{num_episodes}, Avg Reward: {np.mean(avg_rewards):.2f}, "
+                         f"Epsilon: {agent.epsilon:.2f}, Goals Reached: {goals_reached}")
+            
+    return agent, rewards
 
 def plot_rewards(rewards):
     plt.plot(rewards)
@@ -293,11 +321,11 @@ if __name__ == '__main__':
     save_dir = 'saved_models'
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    agent.save(os.path.join(save_dir, 'trained_agent.h5'))
-    print(f"Agent saved to {os.path.join(save_dir, 'trained_agent.h5')}")
+    agent.save(os.path.join(save_dir, 'trained_agent.keras'))
+    print(f"Agent saved to {os.path.join(save_dir, 'trained_agent.keras')}")
 
     # Load the agent
-    # agent = DQNAgent.load('saved_models/trained_agent.h5', STATE_SIZE, MAX_SPEED + 1)
+    # agent = DQNAgent.load('saved_models/trained_agent.keras', STATE_SIZE, MAX_SPEED + 1)
     # agent.epsilon = 0  # Set epsilon to 0 to always choose the best action
     # print("Agent loaded successfully!")
 
