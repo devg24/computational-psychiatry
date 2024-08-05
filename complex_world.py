@@ -15,11 +15,11 @@ MAX_SPEED = 10  # Fixed max speed
 HEALTH_INCREASE = 20
 LOW_HEALTH_LOSS = 0.5
 HEALTH_LOSS_MULTIPLIER = 0.75
-STATE_SIZE = 3
+STATE_SIZE = 5
 FOOD_REWARD = 1
 SURVIVAL_REWARD = 0.1
-PROBABILITY  = 0.8
-PROB_DECAY = 0.9995
+PROBABILITY  = 1.0
+PROB_DECAY = 0.99995
 MAX_ITERATIONS = 1000
 
 class DQNAgent:
@@ -32,8 +32,6 @@ class DQNAgent:
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.9995
         self.learning_rate = 0.001
-        self.target_freq = 150
-        self.target_counter = 0
         self.target_update_tau = 0.01
         self.model = self._build_model()
         self.target_model = self._build_model()
@@ -73,8 +71,8 @@ class DQNAgent:
         return np.argmax(act_values[0])  # returns action
 
     def replay(self, batch_size):
-        if len(self.memory) > 150000:
-            self.memory = self.memory[-150000:]
+        if len(self.memory) > 500000:
+            self.memory = self.memory[-500000:]
 
         minibatch = random.sample(self.memory, batch_size)
 
@@ -94,12 +92,6 @@ class DQNAgent:
 
         self.model.fit(states, targets, epochs=1, verbose=0)
 
-        self.target_counter += 1
-        # if self.target_counter % self.target_freq == 0:
-        #     self.update_target_model()
-
-
-
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
     
@@ -116,9 +108,10 @@ class DQNAgent:
 class VirtualWorld:
     def __init__(self, max_speed):
         self.max_speed = max_speed
-        self.training = True
-        self.food_expiration_time = 10
+        self.food_expiration_time = 5
         self.no_food_rate = 5
+        self.food_quality_range = (0.5, 1.5)
+        self.food_degradation_rate = 0.05
         self.reset()
 
     def reset(self):
@@ -127,9 +120,12 @@ class VirtualWorld:
         self.agent_speed = 0
         self.agent_health = 100
         self.food_position = self.generate_food_position()
+        self.food_quality = random.uniform(*self.food_quality_range)
+        self.food_timer = 0
         self.iteration = 0
         self.no_food_timer = 0
-        return np.array([[self.agent_position, self.agent_health, self.food_position]])
+        return np.array([[self.agent_position, self.agent_health, 
+                          self.food_position, self.food_quality, self.food_timer]])
 
     def generate_food_position(self):
         return random.randint(5, 20)
@@ -139,44 +135,57 @@ class VirtualWorld:
         self.agent_position += self.agent_speed
         self.iteration += 1
 
+
+
         # Calculate health loss
         if self.agent_speed == 0:
             health_loss = LOW_HEALTH_LOSS
         else:
             health_loss = self.agent_speed * HEALTH_LOSS_MULTIPLIER
+
         self.agent_health -= health_loss
 
         reward = SURVIVAL_REWARD
         done = False
 
         if self.food_position >= 0:
+            self.food_timer += 1
             self.no_food_timer = 0
             self.food_position -= action
+            self.food_quality = max(self.food_quality_range[0], 
+                                    self.food_quality - self.food_degradation_rate)
 
             if self.food_position <= 0:
-                self.agent_health = min(self.agent_health + HEALTH_INCREASE, 100)
-                reward += FOOD_REWARD
+                self.agent_health = min(self.agent_health + HEALTH_INCREASE * self.food_quality, 100)
+                reward += FOOD_REWARD * self.food_quality
                 if random.random() >= self.p:
                     self.food_position = -1
                 else:
+                    self.food_timer = 0
                     self.food_position = self.generate_food_position()
-            elif self.iteration >= self.food_expiration_time:
+                    self.food_quality = random.uniform(*self.food_quality_range)
+            elif self.food_timer >= self.food_expiration_time:
                 if random.random() >= self.p:
                     self.food_position = -1
                 else:
+                    self.food_timer = 0
                     self.food_position = self.generate_food_position()
+                    self.food_quality = random.uniform(*self.food_quality_range)
         else:
             self.no_food_timer += 1
+            self.food_timer = 0
             if self.no_food_timer >= self.no_food_rate:
+                self.food_timer = 0
                 self.food_position = self.generate_food_position()
+                self.food_quality = random.uniform(*self.food_quality_range)
                 self.no_food_timer = 0
 
         # Check for death or max iterations
         if self.agent_health <= 0 or self.iteration >= MAX_ITERATIONS:
             done = True
 
-        return np.array([[self.agent_position, self.agent_health, self.food_position]]), reward, done
-    
+        return np.array([[self.agent_position, self.agent_health, 
+                          self.food_position, self.food_quality, self.food_timer]]), reward, done
 
 def run_experiment(max_speed=MAX_SPEED, num_episodes=500):
     global PROBABILITY
@@ -216,8 +225,8 @@ def run_experiment(max_speed=MAX_SPEED, num_episodes=500):
         avg_rewards.append(episode_reward)
         epsilon_values.append(agent.epsilon)
         
-        if len(agent.memory) > 32:
-            agent.replay(32)
+        if len(agent.memory) > 64:
+            agent.replay(64)
             agent.soft_update_target_model()
         
         # Log progress every 10 episodes
@@ -294,7 +303,7 @@ def animate_episode(agent, world):
     ani = animation.FuncAnimation(fig, animate, init_func=init, frames=len(episode_states), interval=200, blit=True)
     plt.legend()
     plt.show()
-    ani.save('episode_animation_speed.gif', writer='pillow', fps=5)
+    ani.save('episode_animation.gif', writer='pillow', fps=5)
 
 
 if __name__ == '__main__':
@@ -302,22 +311,22 @@ if __name__ == '__main__':
     argparser.add_argument("--num_episodes", type=int, default=500)
     args = argparser.parse_args()
 
-    # agent, rewards = run_experiment(num_episodes=args.num_episodes)
+    agent, rewards = run_experiment(num_episodes=args.num_episodes)
 
     # # Save the trained agent
-    # save_dir = 'saved_models'
-    # if not os.path.exists(save_dir):
-    #     os.makedirs(save_dir)
-    # agent.save(os.path.join(save_dir, 'trained_agent.keras'))
-    # print(f"Agent saved to {os.path.join(save_dir, 'trained_agent.keras')}")
+    save_dir = 'saved_models'
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    agent.save(os.path.join(save_dir, 'trained_agent4.keras'))
+    print(f"Agent saved to {os.path.join(save_dir, 'trained_agent4.keras')}")
 
-    # Load the agent
-    agent = DQNAgent.load('saved_models/trained_agent.keras', STATE_SIZE, MAX_SPEED + 1)
-    agent.epsilon = 0  # Set epsilon to 0 to always choose the best action
-    print("Agent loaded successfully!")
+    # # Load the agent
+    # agent = DQNAgent.load('saved_models/trained_agent.keras', STATE_SIZE, MAX_SPEED + 1)
+    # agent.epsilon = 0  # Set epsilon to 0 to always choose the best action
+    # print("Agent loaded successfully!")
 
     # Plotting the results
-    # plot_rewards(rewards)
+    plot_rewards(rewards)
 
     # Animate a single episode with the trained agent
     world = VirtualWorld(MAX_SPEED)
