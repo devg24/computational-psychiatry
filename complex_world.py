@@ -15,11 +15,10 @@ MAX_SPEED = 10  # Fixed max speed
 HEALTH_INCREASE = 20
 LOW_HEALTH_LOSS = 0.5
 HEALTH_LOSS_MULTIPLIER = 0.75
-STATE_SIZE = 5
+STATE_SIZE = 4
 FOOD_REWARD = 1
 SURVIVAL_REWARD = 0.1
-PROBABILITY  = 1.0
-PROB_DECAY = 0.99995
+PROBABILITY  = 0.4
 MAX_ITERATIONS = 1000
 
 class DQNAgent:
@@ -38,9 +37,8 @@ class DQNAgent:
 
     def _build_model(self):
         model = tf.keras.Sequential([
-            tf.keras.layers.Dense(64, input_dim=self.state_size, activation='relu'),
-            tf.keras.layers.Dense(128, activation='relu'),
-            tf.keras.layers.Dense(64, activation='relu'),
+            tf.keras.layers.Dense(32, input_dim=self.state_size, activation='relu'),
+            tf.keras.layers.Dense(32, activation='relu'),
             tf.keras.layers.Dense(self.action_size, activation='linear')
         ])
         model.compile(loss='mse', optimizer=tf.keras.optimizers.legacy.Adam(learning_rate=self.learning_rate))
@@ -125,7 +123,7 @@ class VirtualWorld:
         self.iteration = 0
         self.no_food_timer = 0
         return np.array([[self.agent_position, self.agent_health, 
-                          self.food_position, self.food_quality, self.food_timer]])
+                          self.food_position, self.food_quality]])
 
     def generate_food_position(self):
         return random.randint(5, 20)
@@ -134,8 +132,6 @@ class VirtualWorld:
         self.agent_speed = action
         self.agent_position += self.agent_speed
         self.iteration += 1
-
-
 
         # Calculate health loss
         if self.agent_speed == 0:
@@ -175,17 +171,15 @@ class VirtualWorld:
             self.no_food_timer += 1
             self.food_timer = 0
             if self.no_food_timer >= self.no_food_rate:
-                self.food_timer = 0
                 self.food_position = self.generate_food_position()
                 self.food_quality = random.uniform(*self.food_quality_range)
-                self.no_food_timer = 0
 
         # Check for death or max iterations
         if self.agent_health <= 0 or self.iteration >= MAX_ITERATIONS:
             done = True
 
         return np.array([[self.agent_position, self.agent_health, 
-                          self.food_position, self.food_quality, self.food_timer]]), reward, done
+                          self.food_position, self.food_quality]]), reward, done
 
 def run_experiment(max_speed=MAX_SPEED, num_episodes=500):
     global PROBABILITY
@@ -204,7 +198,6 @@ def run_experiment(max_speed=MAX_SPEED, num_episodes=500):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     
     for episode in tqdm(range(num_episodes), desc="Training"):
-        PROBABILITY = max(0.2, PROBABILITY * PROB_DECAY)
         state = world.reset()
         state = np.reshape(state, [1, state_size])
         episode_actions = []
