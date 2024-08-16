@@ -18,7 +18,7 @@ HEALTH_LOSS_MULTIPLIER = 0.75
 STATE_SIZE = 4
 FOOD_REWARD = 1
 SURVIVAL_REWARD = 0.1
-PROBABILITY  = 0.4
+PROBABILITY  = 0.6
 MAX_ITERATIONS = 1000
 
 class DQNAgent:
@@ -106,7 +106,7 @@ class DQNAgent:
 class VirtualWorld:
     def __init__(self, max_speed):
         self.max_speed = max_speed
-        self.food_expiration_time = 5
+        self.food_expiration_time = 10
         self.no_food_rate = 5
         self.food_quality_range = (0.5, 1.5)
         self.food_degradation_rate = 0.05
@@ -186,7 +186,8 @@ def run_experiment(max_speed=MAX_SPEED, num_episodes=500):
     state_size = STATE_SIZE
     action_size = max_speed + 1
     world = VirtualWorld(max_speed=max_speed)
-    agent = DQNAgent(state_size, action_size)
+    agent = DQNAgent.load('saved_models/trained_agent.keras',state_size, action_size)
+    agent.epsilon = 0.1
 
     total_actions = []
     rewards = []
@@ -310,8 +311,8 @@ if __name__ == '__main__':
     save_dir = 'saved_models'
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    agent.save(os.path.join(save_dir, 'trained_agent4.keras'))
-    print(f"Agent saved to {os.path.join(save_dir, 'trained_agent4.keras')}")
+    agent.save(os.path.join(save_dir, 'trained_agent.keras'))
+    print(f"Agent saved to {os.path.join(save_dir, 'trained_agent.keras')}")
 
     # # Load the agent
     # agent = DQNAgent.load('saved_models/trained_agent.keras', STATE_SIZE, MAX_SPEED + 1)
